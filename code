@@ -1,0 +1,73 @@
+import pandas as pd
+import numpy as np
+import pickle
+import json
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.ensemble import IsolationForest
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import mean_squared_error, classification_report
+
+# Load data
+data = pd.read_csv('Copper_Set.csv')
+print("Initial dataset shape: ", data.shape)
+
+# Replace 'Material_Reference' values starting with '00000' with NaN
+data['material_ref'] = data['material_ref'].replace(r'^00000.*$', np.nan, regex=True)
+
+# Handle missing values
+data.fillna(0, inplace=True)
+
+# Treat outliers using Isolation Forest
+isolation_forest = IsolationForest(contamination=0.1)
+data['anomaly'] = isolation_forest.fit_predict(data.select_dtypes(include=[np.number]))
+data = data[data['anomaly'] == 1]
+data.drop('anomaly', axis=1, inplace=True)
+
+# Remove rows with non-positive 'selling_price'
+data = data[data['selling_price'] > 0]
+data['selling_price'] = np.log1p(data['selling_price'])
+
+# Encode categorical variables
+encoder = LabelEncoder()
+data['status'] = encoder.fit_transform(data['status'].astype(str))
+
+# Select features
+X = data.drop(['selling_price', 'status', 'id', 'material_ref', 'item_type', 'quantity tons'], axis=1)
+y_regression = data['selling_price']
+y_classification = data['status']
+
+# Save selected feature names
+selected_features = X.columns.tolist()
+with open('D:/guvi/Project/5. copper_industry/selected_features.json', 'w') as f:
+    json.dump(selected_features, f)
+
+# Scale features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Split dataset
+X_train_reg, X_test_reg, y_train_reg, y_test_reg = train_test_split(X_scaled, y_regression, test_size=0.2, random_state=42)
+X_train_clf, X_test_clf, y_train_clf, y_test_clf = train_test_split(X_scaled, y_classification, test_size=0.2, random_state=42)
+
+# Train Regression Model
+regressor = DecisionTreeRegressor()
+regressor.fit(X_train_reg, y_train_reg)
+y_pred_reg = regressor.predict(X_test_reg)
+mse = mean_squared_error(y_test_reg, y_pred_reg)
+print("Regression MSE:", mse)
+
+# Train Classification Model
+classifier = RandomForestClassifier()
+classifier.fit(X_train_clf, y_train_clf)
+y_pred_clf = classifier.predict(X_test_clf)
+print("Classification Report:\n", classification_report(y_test_clf, y_pred_clf))
+
+# Save models and scaler
+with open('D:/guvi/Project/5. copper_industry/reg.pkl', 'wb') as f:
+    pickle.dump(regressor, f)
+with open('D:/guvi/Project/5. copper_industry/classifier.pkl', 'wb') as f:
+    pickle.dump(classifier, f)
+with open('D:/guvi/Project/5. copper_industry/scaler.pkl', 'wb') as f:
+    pickle.dump(scaler, f)
